@@ -1,0 +1,1292 @@
+---
+title: ''
+output: html_document
+date: ''
+---
+
+---
+title: ''
+output: html_document
+date: ''
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r dataprep, echo=FALSE, warning=FALSE, include=FALSE,message=FALSE}
+
+#load packages
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(ggpubr)
+library(tidyverse)
+library(purrr)
+library(Hmisc)
+library(reshape2)
+library(viridis)
+library(ggridges)
+library(gghalves)
+library(readxl)
+library(lubridate)
+library(patchwork)
+library(lme4)
+library(readr)
+library(knitr)
+library(kableExtra)
+
+#import my data from CSV 
+#PlayerMaker <- read.csv("PossessionSummaryDatabase.csv", header = TRUE, sep = ",", skip=6)
+#CODEDPlayerMaker <- read.csv("AFL Kick Velocity Database CODED.csv", header = TRUE, sep = ",", skip=4)
+#VFLCODEDPlayerMaker <- read.csv("VFL Kick Velocity Database CODED.csv", header = TRUE, sep = ",", skip=1)
+
+#Import AFLW Dataset 2024
+AFLWPlayerMaker <- read.csv("AFLW Kick Database 2024 CODED.csv", header = TRUE)
+
+#Import VFLW Dataset 2024
+VFLWPlayerMaker <- read.csv("VFLW Kick Database 2024 CODED.csv", header = TRUE)
+
+#---------------
+
+#Import AFLM Dataset 2024
+AFLMPlayerMaker <- read.csv("AFL Kick Velocity Database CODED.csv", header = TRUE)
+
+#Import VFLM Dataset 2024
+VFLMPlayerMaker <- read.csv("VFL Kick Velocity Database CODED.csv", header = TRUE)
+
+## PLayerMaker Kick Database - Filter relevant metrics & rename columns =
+#PMData <- PlayerMaker %>% select(Session.Type, Date, Tag,`Player.Name`,`Releasing.Leg`,`Release.Velocity..m.sec.`)
+#colnames(PMData) <- c("Session","Date", "Period", "Player","KLeg","KVelocity")
+
+#AFL Coded Datafile
+#AFLData <- CODEDPlayerMaker %>% select (X10.3.2023,Main.Training,Warm.Up.Kicking.2023.03.10,Start.Time,X.2,X.3,X.6,X.8,X.9,X.10)
+#colnames(AFLData) <- c("Date","Session", "VideoLabel", "Player","VelBand","KickLeg", "KickType","KickVelocity","Detection","KickLabel")
+
+#VFL Coded Datafile
+#VFLData <- VFLCODEDPlayerMaker %>% select(VFL.Trial.15.06.23,Start.Time,X.3,X.4,X.7,X.9,X.10)
+#colnames(VFLData) <- c("VideoLabel", "Player","VelBand","KickLeg", "KickType","KickVelocity","Detection")
+
+```
+
+```{css, echo = FALSE}
+h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11 {
+text-align: center;
+}
+
+```
+
+
+```{r,logo,echo = FALSE, out.width="100%", fig.align='right'}
+# Loading the Western Bulldogs logo
+
+knitr::include_graphics("wb_logo.png", error = FALSE)
+```
+
+<br>
+
+### FEMALE GROUPS
+
+```{r,AFLW, echo=FALSE, warning=FALSE, message=FALSE, out.width="70%",fig.align='center'}
+
+# AFLW Kick Detction Counts
+
+#--------------------------------------------------------------------------------------
+#AFLW CODED ON VIDEO - Overall Detection Accuracy =
+
+#Observed Kick Count
+AFLWObserved <- AFLWPlayerMaker %>% filter(Observed.Not.Observed == "Observed")
+
+# Detcted Kick Count
+AFLWDetected <- AFLWPlayerMaker %>% filter(Detected.Not.Detected == "Detected")
+
+# Not Detected Kick Count
+AFLW_NotDetected <- AFLWPlayerMaker %>% filter(Detected.Not.Detected == "Not Detected")
+
+# Summary Table of Counts
+AFLDetected <- AFLWPlayerMaker %>% filter(Detected.Not.Detected == "Detected") %>% count() 
+AFLNotDetected <- AFLWPlayerMaker %>% filter(Detected.Not.Detected == "Not Detected") %>% count()
+colnames(AFLDetected)[colnames(AFLDetected) == "n"] = "Detected"
+colnames(AFLNotDetected)[colnames(AFLNotDetected) == "n"] = "Not-Detected"
+Detections <- merge(AFLDetected, AFLNotDetected, all=TRUE)
+DetectionTotal <- Detections %>% mutate("TOTAL KICKS" = (`Detected`+ `Not-Detected`))
+DetectionRate <- DetectionTotal %>% mutate("Detection Accuracy %" = (`Detected`/`TOTAL KICKS`)) %>% mutate("Error Rate %" = (`Not-Detected`/`TOTAL KICKS`))
+
+
+# ----------
+# Count Kick Types - AFLW
+
+#Filter dataset to remove unnessccary columns
+AFLW_Filtered <- AFLWPlayerMaker %>% select(1,13,15:18)
+
+#Count each Kick Type Observed 
+AFLWKickTypes <- AFLW_Filtered %>% group_by(Kick.Type, Detected.Not.Detected, Kick.Category, Observed.Not.Observed) %>%
+  summarise(Count = n())
+
+
+###--------------
+# Plotting Kick Type Velocity Profiles AFLW
+
+#Remove 'No Kick'
+AFLW_Velocity <- AFLW_Filtered %>% filter(Kick.Category != "No Kick")
+
+# First create a summary table with Mean, Median, Min and Max velocity for each kick type
+Velocity_summary_table <- AFLW_Velocity %>%
+  group_by(Kick.Category) %>%
+  summarise(
+    Mean = mean(Release.Velocity.m.s, na.rm = TRUE),
+    Median = median(Release.Velocity.m.s, na.rm = TRUE),
+    Min = min(Release.Velocity.m.s, na.rm = TRUE),
+    Max = max(Release.Velocity.m.s, na.rm = TRUE),
+    Std_Dev = sd(Release.Velocity.m.s, na.rm = TRUE))
+
+#totals for MEAN
+# Calculate the mean and standard deviation of the Mean column
+mean_of_means <- mean(Velocity_summary_table$Mean, na.rm = TRUE)
+sd_of_means <- sd(Velocity_summary_table$Mean, na.rm = TRUE)
+
+
+AFLW_plot1 <- ggplot(AFLW_Velocity, aes(x = Kick.Category, y = Release.Velocity.m.s)) +
+  geom_boxplot(fill = "white", color = "black", alpha = 0.5) +  # Plain white boxplots
+  geom_jitter(aes(color = Kick.Category), width = 0.3, size = 1, alpha = 1) +  # Scatter plot points
+  labs(title = "Phase One - Female Group (AFLW)", y = "Velocity (m.s)", x = NULL) +  # Remove x-axis label
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 40, hjust = 1),
+        legend.position = "none") +  # Remove the legend
+  scale_y_continuous(limits = c(5, 25)) +  # Adjust y-axis for velocity range
+  scale_x_discrete(limits = c("Other Kick", "Grubber Kick", "Checkside Kick", 
+                              "Surge Kick", "Punch Kick", "Weighted Kick", 
+                              "Set Shot at Goal", "Snap Kick"))  # Reorder x-axis labels
+
+# Print the plot
+AFLW_plot1
+
+
+```
+
+<br>
+
+```{r,VFLW, echo=FALSE, warning=FALSE, message=FALSE, out.width="70%",fig.align='center'}
+
+# VFLW Kick Detction Counts
+
+#--------------------------------------------------------------------------------------
+#VFLW CODED ON VIDEO - Overall Detection Accuracy =
+
+# Remove Other Kicks - not required or relevant for VFLW Phase Two
+VFLWPlayerMaker <- VFLWPlayerMaker %>% filter(Kick.Category != "Other Kick")
+
+#Observed Kick Count
+VFLWObserved <- VFLWPlayerMaker %>% filter(Observed.Not.Observed == "Observed")
+
+# Detcted Kick Count
+VFLWDetected <- VFLWPlayerMaker %>% filter(Detected.Not.Detected == "Detected")
+
+# Not Detected Kick Count
+VFLW_NotDetected <- VFLWPlayerMaker %>% filter(Detected.Not.Detected == "Not Detected")
+
+# Summary Table of Counts
+VFLWDetected <- VFLWPlayerMaker %>% filter(Detected.Not.Detected == "Detected") %>% count() 
+VFLWNotDetected <- VFLWPlayerMaker %>% filter(Detected.Not.Detected == "Not Detected") %>% count()
+colnames(VFLWDetected)[colnames(VFLWDetected) == "n"] = "Detected"
+colnames(VFLWNotDetected)[colnames(VFLWNotDetected) == "n"] = "Not-Detected"
+VFLWDetections <- merge(VFLWDetected, VFLWNotDetected, all=TRUE)
+VFLWDetectionTotal <- VFLWDetections %>% mutate("TOTAL KICKS" = (`Detected`+ `Not-Detected`))
+VFLWDetectionRate <- VFLWDetectionTotal %>% mutate("Detection Accuracy %" = (`Detected`/`TOTAL KICKS`)) %>% mutate("Error Rate %" = (`Not-Detected`/`TOTAL KICKS`))
+
+
+# ----------
+# Count Kick Types - AFLW
+
+#Filter dataset to remove unnessccary columns
+VFLW_Filtered <- VFLWPlayerMaker %>% select(1,12,14:17)
+
+#Count each Kick Type Observed 
+VFLWKickTypes <- VFLW_Filtered %>% group_by(Kick.Type, Detected.Not.Detected, Kick.Category, Observed.Not.Observed) %>%
+  summarise(Count = n())
+
+
+###--------------
+# Plotting Kick Type Velocity Profiles AFLW
+
+#Remove 'No Kick'
+VFLW_Velocity <- VFLW_Filtered %>% filter(Kick.Category != "No Kick")
+
+# First create a summary table with Mean, Median, Min and Max velocity for each kick type
+VFLW_Velocity_summary_table <- VFLW_Velocity %>%
+  group_by(Kick.Category) %>%
+  summarise(
+    Mean = mean(Kick.Velocity.m.s, na.rm = TRUE),
+    Median = median(Kick.Velocity.m.s, na.rm = TRUE),
+    Min = min(Kick.Velocity.m.s, na.rm = TRUE),
+    Max = max(Kick.Velocity.m.s, na.rm = TRUE),
+    Std_Dev = sd(Kick.Velocity.m.s, na.rm = TRUE))
+
+#totals for MEAN
+# Calculate the mean and standard deviation of the Mean column
+VFLW_mean_of_means <- mean(VFLW_Velocity_summary_table$Mean, na.rm = TRUE)
+VFLW_sd_of_means <- sd(VFLW_Velocity_summary_table$Mean, na.rm = TRUE)
+
+
+VFLW_plot1 <- ggplot(VFLW_Velocity, aes(x = Kick.Category, y = Kick.Velocity.m.s)) +
+  geom_boxplot(fill = "white", color = "black", alpha = 0.5) +  # Plain white boxplots
+  geom_jitter(aes(color = Kick.Category), width = 0.3, size = 1, alpha = 1) +  # Scatter plot points
+  labs(title = "Phase Two - Female Group (VFLW)", y = "Velocity (m.s)", x = NULL) +  # Remove x-axis label
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 40, hjust = 1),
+        legend.position = "none") +  # Remove the legend
+  scale_y_continuous(limits = c(5, 20)) +  # Adjust y-axis for velocity range
+  scale_x_discrete(limits = c("Kick to Self", "Grubber 15m", "Drop Punt 15m", "Snap Kick 15m", "Grubber 30m", "Grubber 50m", "Drop Punt 30m", "Snap Kick 30m",
+                              "Surge Kick", "Torpedo Kick", "Snap Kick 50m", "Drop Punt 50m"))  # Reorder x-axis labels
+
+# Print the plot
+VFLW_plot1
+
+
+```
+
+
+<br><br<br>
+
+
+
+
+### MALE GROUPS BELOW
+
+```{r,AFLM, echo=FALSE, warning=FALSE, message=FALSE, out.width="70%",fig.align='center'}
+
+# AFL-M Kick Detction Counts
+
+#--------------------------------------------------------------------------------------
+#AFL CODED ON VIDEO - Overall Detection Accuracy =
+
+#Observed Kick Count
+AFLMObserved <- AFLMPlayerMaker %>% filter(Observed.Not.Observed == "Observed")
+
+# Detcted Kick Count
+AFLMDetected <- AFLMPlayerMaker %>% filter(Detected.Not.Detected == "Detected")
+
+# Not Detected Kick Count
+AFLM_NotDetected <- AFLMPlayerMaker %>% filter(Detected.Not.Detected == "Not Detected")
+
+# Summary Table of Counts
+AFLMDetected <- AFLMPlayerMaker %>% filter(Detected.Not.Detected == "Detected") %>% count() 
+AFLMNotDetected <- AFLMPlayerMaker %>% filter(Detected.Not.Detected == "Not Detected") %>% count()
+colnames(AFLMDetected)[colnames(AFLMDetected) == "n"] = "Detected"
+colnames(AFLMNotDetected)[colnames(AFLMNotDetected) == "n"] = "Not-Detected"
+AFLMDetections <- merge(AFLMDetected, AFLMNotDetected, all=TRUE)
+AFLMDetectionTotal <- AFLMDetections %>% mutate("TOTAL KICKS" = (`Detected`+ `Not-Detected`))
+AFLMDetectionRate <- AFLMDetectionTotal %>% mutate("Detection Accuracy %" = (`Detected`/`TOTAL KICKS`)) %>% mutate("Error Rate %" = (`Not-Detected`/`TOTAL KICKS`))
+
+
+# ----------
+# Count Kick Types - AFLW
+
+#Filter dataset to remove unnessccary columns
+AFLM_Filtered <- AFLMPlayerMaker %>% select(1,13,15:18)
+
+#Count each Kick Type Observed 
+AFLMKickTypes <- AFLM_Filtered %>% group_by(Kick.Type, Detected.Not.Detected, Kick.Category, Observed.Not.Observed) %>%
+  summarise(Count = n())
+
+
+###--------------
+# Plotting Kick Type Velocity Profiles AFLW
+
+#Re
+AFLM_Velocity <- AFLM_Filtered 
+
+# First create a summary table with Mean, Median, Min and Max velocity for each kick type
+AFLMVelocity_summary_table <- AFLM_Velocity %>%
+  group_by(Kick.Category) %>%
+  summarise(
+    Mean = mean(Release.Velocity.m.s, na.rm = TRUE),
+    Median = median(Release.Velocity.m.s, na.rm = TRUE),
+    Min = min(Release.Velocity.m.s, na.rm = TRUE),
+    Max = max(Release.Velocity.m.s, na.rm = TRUE),
+    Std_Dev = sd(Release.Velocity.m.s, na.rm = TRUE))
+
+#totals for MEAN
+# Calculate the mean and standard deviation of the Mean column
+AFLMmean_of_means <- mean(AFLMVelocity_summary_table$Mean, na.rm = TRUE)
+AFLMsd_of_means <- sd(AFLMVelocity_summary_table$Mean, na.rm = TRUE)
+
+
+AFLM_plot1 <- ggplot(AFLM_Velocity, aes(x = Kick.Category, y = Release.Velocity.m.s)) +
+  geom_boxplot(fill = "white", color = "black", alpha = 0.5) +  # Plain white boxplots
+  geom_jitter(aes(color = Kick.Category), width = 0.3, size = 1, alpha = 1) +  # Scatter plot points
+  labs(title = "Phase One - Male Group (AFL)", y = "Velocity (m.s)", x = NULL) +  # Remove x-axis label
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 40, hjust = 1),
+        legend.position = "none") +  # Remove the legend
+  scale_y_continuous(limits = c(5, 25)) +  # Adjust y-axis for velocity range
+  scale_x_discrete(limits = c("Grubber Kick", "Checkside Kick", "Other Kick", 
+                              "Weighted Kick", "Punch Kick", "Snap Kick", 
+                              "Surge Kick", "Torpedo Kick", "Set Shot at Goal"))  # Reorder x-axis labels
+
+# Print the plot
+AFLM_plot1
+
+
+```
+
+<br>
+
+```{r,VFLM, echo=FALSE, warning=FALSE, message=FALSE, out.width="70%",fig.align='center'}
+
+# VFL-M Kick Detction Counts
+
+#--------------------------------------------------------------------------------------
+#VFL CODED ON VIDEO - Overall Detection Accuracy =
+
+#Observed Kick Count
+VFLMObserved <- VFLMPlayerMaker %>% filter(Observed.Not.Observed == "Observed")
+
+# Detcted Kick Count
+VFLMDetected <- VFLMPlayerMaker %>% filter(Detected.Not.Detected == "Detected")
+
+# Not Detected Kick Count
+VFLM_NotDetected <- VFLMPlayerMaker %>% filter(Detected.Not.Detected == "Not Detected")
+
+# Summary Table of Counts
+VFLMDetected <- VFLMPlayerMaker %>% filter(Detected.Not.Detected == "Detected") %>% count() 
+VFLMNotDetected <- VFLMPlayerMaker %>% filter(Detected.Not.Detected == "Not Detected") %>% count()
+colnames(VFLMDetected)[colnames(VFLMDetected) == "n"] = "Detected"
+colnames(VFLMNotDetected)[colnames(VFLMNotDetected) == "n"] = "Not-Detected"
+VFLMDetections <- merge(VFLMDetected, VFLMNotDetected, all=TRUE)
+VFLMDetectionTotal <- VFLMDetections %>% mutate("TOTAL KICKS" = (`Detected`+ `Not-Detected`))
+VFLMDetectionRate <- VFLMDetectionTotal %>% mutate("Detection Accuracy %" = (`Detected`/`TOTAL KICKS`)) %>% mutate("Error Rate %" = (`Not-Detected`/`TOTAL KICKS`))
+
+
+# ----------
+# Count Kick Types - AFLW
+
+#Filter dataset to remove unnessccary columns
+VFLM_Filtered <- VFLMPlayerMaker %>% select(1,12,14:17)
+
+#Count each Kick Type Observed 
+VFLMKickTypes <- VFLM_Filtered %>% group_by(Kick.Type, Detected.Not.Detected, Kick.Category, Observed.Not.Observed) %>%
+  summarise(Count = n())
+
+
+###--------------
+# Plotting Kick Type Velocity Profiles AFLW
+
+#Re
+VFLM_Velocity <- VFLM_Filtered 
+
+# First create a summary table with Mean, Median, Min and Max velocity for each kick type
+VFLMVelocity_summary_table <- VFLM_Velocity %>%
+  group_by(Kick.Category) %>%
+  summarise(
+    Mean = mean(Kick.Velocity.m.s, na.rm = TRUE),
+    Median = median(Kick.Velocity.m.s, na.rm = TRUE),
+    Min = min(Kick.Velocity.m.s, na.rm = TRUE),
+    Max = max(Kick.Velocity.m.s, na.rm = TRUE),
+    Std_Dev = sd(Kick.Velocity.m.s, na.rm = TRUE))
+
+#totals for MEAN
+# Calculate the mean and standard deviation of the Mean column
+VFLMmean_of_means <- mean(VFLMVelocity_summary_table$Mean, na.rm = TRUE)
+VFLMsd_of_means <- sd(VFLMVelocity_summary_table$Mean, na.rm = TRUE)
+
+
+VFLM_plot1 <- ggplot(VFLM_Velocity, aes(x = Kick.Category, y = Kick.Velocity.m.s)) +
+  geom_boxplot(fill = "white", color = "black", alpha = 0.5) +  # Plain white boxplots
+  geom_jitter(aes(color = Kick.Category), width = 0.3, size = 1, alpha = 1) +  # Scatter plot points
+  labs(title = "Phase Two - Male Group (VFL)", y = "Velocity (m.s)", x = NULL) +  # Remove x-axis label
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 40, hjust = 1),
+        legend.position = "none") +  # Remove the legend
+  scale_y_continuous(limits = c(5, 25)) +  # Adjust y-axis for velocity range
+  scale_x_discrete(limits = c("Grubber 15m", "Snap Kick 15m", "Drop Punt 15m", "Grubber 30m", "Drop Punt 30m", "Snap Kick 30m", "Grubber 50m", "Surge Kick", "Torpedo Kick", "Snap Kick 50m", "Drop Punt 50m"))  # Reorder x-axis labels
+
+# Print the plot
+VFLM_plot1
+
+
+```
+
+
+
+
+### ALL GROUPS - DATABASE
+
+# PHASE ONE (BOTH)
+
+```{r, echo=FALSE,fig.height=7, out.width="80%"}
+
+#Import DATABASE 2024
+Study2_Database <- read.csv("Study 2 - DATABASE/Study 2 Kick Database.csv", header = TRUE)
+
+#Remove 'No Kick'
+Study2_Velocity <- Study2_Database %>% filter(Kick.Category != "No Kick")
+
+### PHASE ONE FIRST
+PHASE_ONE <- Study2_Velocity %>% filter(grepl("Phase One", Phase))
+
+
+
+
+# Plot and Use facet_wrap
+PHASE_ONE_plot <- ggplot(PHASE_ONE, aes(x = Kick.Category, y = Release.Velocity.m.s)) +
+  geom_boxplot(fill = "white", color = "black", alpha = 0.5) +  # Plain white boxplots
+  geom_jitter(aes(color = Kick.Category), width = 0.3, size = 0.5, alpha = 1) +  # Scatter plot points
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16),  # Modify the main plot title
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 40, hjust = 1),
+        legend.position = "none",  # Remove the legend
+        strip.text = element_text(face = "bold", size = 12, hjust = 0.5),  # Modify facet titles
+        axis.title.x = element_blank()) +  # Remove x-axis title
+  scale_y_continuous(limits = c(5, 25)) + 
+  facet_wrap(~Phase, ncol = 1, labeller = labeller(Phase = c("Phase One - AFL" = "A) On-Field Phase - Male Group (AFL)", 
+                                                           "Phase One - AFLW" = "B) On-Field Phase - Female Group (AFLW)"))) +  # Customize facet titles
+  scale_x_discrete(limits = c("Grubber Kick", "Checkside Kick","Other Kick",
+                              "Weighted Kick", "Punch Kick", "Surge Kick", 
+                              "Snap Kick", "Torpedo Kick", "Set Shot at Goal")) +  # Reorder x-axis labels
+  labs(y = expression("Velocity (m.s"^-1*")"))  # Correct y-axis label using expression
+
+
+
+
+
+# Print the plot
+PHASE_ONE_plot
+
+
+
+
+```
+
+
+
+# PHASE TWO (BOTH)
+
+```{r, echo=FALSE,fig.height=7, out.width="80%"}
+
+### PHASE ONE FIRST
+PHASE_TWO <- Study2_Velocity %>% filter(grepl("Phase Two", Phase))
+
+#Remove 'Other'
+PHASE_TWO <- PHASE_TWO %>% filter(Kick.Category != "Other Kick")
+
+# Plot and Use facet_wrap
+PHASE_TWO_plot <- ggplot(PHASE_TWO, aes(x = Kick.Category, y = Release.Velocity.m.s)) +
+  geom_boxplot(fill = "white", color = "black", alpha = 0.5) +  # Plain white boxplots
+  geom_jitter(aes(color = Kick.Category), width = 0.3, size = 0.5, alpha = 1) +  # Scatter plot points
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16),  # Modify the main plot title
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 40, hjust = 1),
+        legend.position = "none",  # Remove the legend
+        strip.text = element_text(face = "bold", size = 12, hjust = 0.5),  # Modify facet titles
+        axis.title.x = element_blank()) +  # Remove x-axis title
+  scale_y_continuous(limits = c(5, 25)) + 
+  facet_wrap(~Phase, ncol = 1, labeller = labeller(Phase = c("Phase Two - VFL" = "A) Protocol Phase - Male Group (VFL)", 
+                                                           "Phase Two - VFLW" = "B) Protocol Phase - Female Group (VFLW)"))) +  # Customize facet titles
+  scale_x_discrete(limits = c("Kick to Self", "Grubber 15m", "Snap Kick 15m", "Drop Punt 15m", "Grubber 30m", "Snap Kick 30m", "Drop Punt 30m", "Grubber 50m", "Snap Kick 50m", "Drop Punt 50m", "Surge Kick","Torpedo Kick")) +  # Reorder x-axis labels
+  labs(y = expression("Velocity (m.s"^-1*")"))  # Correct y-axis label using expression
+
+
+# Print the plot
+PHASE_TWO_plot
+
+
+
+
+
+
+```
+
+
+
+#---------------------------
+
+
+# MATRIX CALCULATIONS - USE THES FOR RESULTS TABLES IN MANUSCRIPT
+
+```{r, echo=FALSE,fig.height=7, out.width="80%"}
+
+#ALL DATASETS- De-identified
+
+ALL_DATA <- read.csv("Study 2 - DATABASE/Study 2 Kick Database - DEIDENTIFIED.csv", header = TRUE)
+
+#Remove 'other' from Protocol Phase (these 2 instances were outside of the Proctol and not included in study)
+ALL_DATA <- ALL_DATA %>%
+  filter(!(Phase == "Phase Two - VFLW" & grepl("Other Kick", Kick.Category)))
+
+
+
+
+# Create "classes" - TP etc....
+ALL_DATA_CLASSES <- ALL_DATA %>%
+  mutate(Class = case_when(
+    Detected.Not.Detected == "Detected" & Observed.Not.Observed == "Observed" ~ "True Positive",
+    Detected.Not.Detected == "Not Detected" & Observed.Not.Observed == "Observed" ~ "False Negative",
+    Detected.Not.Detected == "Detected" & Observed.Not.Observed == "Not Observed" ~ "False Positive",
+    Detected.Not.Detected == "Not Detected" & Observed.Not.Observed == "Not Observed" ~ "True Negative",
+    TRUE ~ "Unknown"))
+
+# Calculate the count of each 'class' per Phase and Kick.Category
+class_rate <- ALL_DATA_CLASSES %>%
+  group_by(Phase, Kick.Category, Class) %>%
+  summarise(Count = n(), .groups = 'drop') %>%
+  group_by(Phase, Kick.Category) %>%
+  mutate(Class_Rate = Count / sum(Count)) %>%
+  select(Phase, Kick.Category, Class, Count)
+
+# Reshape the data to ensure each class (TP, TN, FP, FN) has its own column, filling missing values with 0
+metrics_data <- class_rate %>%
+  pivot_wider(names_from = Class, values_from = Count, values_fill = list(Count = 0))  # Ensure missing values are filled with 0
+
+# Ensure no NA values
+metrics_data[is.na(metrics_data)] <- 0
+
+#Create a "true neg.' column as there are no occurances - but needed for calcuations...
+metrics_data <- metrics_data %>%
+  mutate(`True Negative` = 0)
+
+#------- >
+# Update False Positive values based on Phase/Gender Groups as calculation are split into Phases/Gender Groups....
+metrics_data <- metrics_data %>%
+  mutate(`False Positive` = case_when(
+    Phase == "Phase One - AFLW" ~ 2,
+    Phase == "Phase Two - VFLW" ~ 1,
+    TRUE ~ `False Positive`))
+
+
+#Remove the NO KICK - only used for coding, no kick/False Positives are accounted for now...
+metrics_data <- metrics_data %>%
+  filter(Kick.Category != "No Kick")
+
+#-------- >
+
+
+metrics <- metrics_data %>%
+  mutate(
+    Accuracy = round((`True Positive` + `True Negative`) / (`True Positive` + `True Negative` + `False Positive` + `False Negative`), 2),
+    Precision = round(`True Positive` / (`True Positive` + `False Positive`), 2),
+    Sensitivity = round(`True Positive` / (`True Positive` + `False Negative`), 2),
+    ErrorRate = round((`False Positive` + `False Negative`) / (`True Positive` + `True Negative` + `False Positive` + `False Negative`), 2)
+  ) %>%
+  select(Phase, Kick.Category, `True Positive`, `False Negative`, `False Positive`, `True Negative`, Accuracy, Precision, Sensitivity, ErrorRate)
+
+
+
+
+
+
+#-------------------------
+# SPLIT INTO PHASES---->
+
+# PHASE ONE / ON-FIELD PHASE:
+
+P1_OnField_Phase <- metrics %>% filter(grepl("Phase One", Phase))
+
+# Assuming your original dataframe is named 'metrics'
+P1_OnField_Phase <- P1_OnField_Phase %>%
+  mutate(PhaseGroup = case_when(
+    Phase == "Phase One - AFL" ~ "Phase One",
+    Phase == "Phase One - AFLW" ~ "Phase One",
+    TRUE ~ NA_character_))
+
+# Assuming your original dataframe is named 'metrics'
+P1_totals_df <- P1_OnField_Phase %>%
+  group_by(PhaseGroup, Kick.Category) %>%
+  summarise(
+    Total_True_Positive = sum(`True Positive`),
+    Total_False_Negative = sum(`False Negative`),
+    Total_False_Positive = sum(`False Positive`),
+    Total_True_Negative = sum(`True Negative`),
+    Total_Accuracy = mean(Accuracy, na.rm = TRUE),
+    Total_Precision = mean(Precision, na.rm = TRUE),
+    Total_Sensitivity = mean(Sensitivity, na.rm = TRUE),
+    Total_ErrorRate = mean(ErrorRate, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+
+
+#--------------Male totals Phase One -
+Male_P1 <- P1_OnField_Phase %>% filter(Phase == "Phase One - AFL") %>% ungroup
+
+# Calculate the totals for TP, FN, FP, TN
+summary_row <- Male_P1 %>%
+  summarise(
+    Phase = "ALL KICKS",
+    Kick.Category = "All Kicks",
+    `True Positive` = sum(`True Positive`),
+    `False Negative` = sum(`False Negative`),
+    `False Positive` = sum(`False Positive`),
+    `True Negative` = sum(`True Negative`),
+    Accuracy = (sum(`True Positive`) + sum(`True Negative`)) / (sum(`True Positive`) + sum(`False Negative`) + sum(`False Positive`) + sum(`True Negative`)),
+    Precision = sum(`True Positive`) / (sum(`True Positive`) + sum(`False Positive`)),
+    Sensitivity = sum(`True Positive`) / (sum(`True Positive`) + sum(`False Negative`)),
+    ErrorRate = (sum(`False Positive`) + sum(`False Negative`)) / (sum(`True Positive`) + sum(`False Negative`) + sum(`False Positive`) + sum(`True Negative`))
+  ) %>%
+  mutate_at(vars(Accuracy, Precision, Sensitivity, ErrorRate), round, 3)
+
+# Append the summary row to the original dataframe
+Male_P1 <- bind_rows(Male_P1, summary_row)
+
+
+#--------------Female totals Phase One -
+Female_P1 <- P1_OnField_Phase %>% filter(Phase == "Phase One - AFLW") %>% ungroup
+
+# Calculate the totals for TP, FN, FP, TN
+summary_row_2 <- Female_P1 %>%
+  summarise(
+    Phase = "ALL KICKS",
+    Kick.Category = "All Kicks",
+    `True Positive` = sum(`True Positive`),
+    `False Negative` = sum(`False Negative`),
+    `False Positive` = first(`False Positive`),
+    `True Negative` = sum(`True Negative`),
+    Accuracy = (sum(`True Positive`) + sum(`True Negative`)) / (sum(`True Positive`) + sum(`False Negative`) + sum(`False Positive`) + sum(`True Negative`)),
+    Precision = sum(`True Positive`) / (sum(`True Positive`) + sum(`False Positive`)),
+    Sensitivity = sum(`True Positive`) / (sum(`True Positive`) + sum(`False Negative`)),
+    ErrorRate = (sum(`False Positive`) + sum(`False Negative`)) / (sum(`True Positive`) + sum(`False Negative`) + sum(`False Positive`) + sum(`True Negative`))
+  ) %>%
+  mutate_at(vars(Accuracy, Precision, Sensitivity, ErrorRate), round, 3)
+
+# Append the summary row to the original dataframe
+Female_P1 <- bind_rows(Female_P1, summary_row_2)
+
+
+#------ GRaND TOTAL
+
+# Grand Total Summary Row (Male + Female combined)
+grand_total_row <- bind_rows(Male_P1 %>% filter(Phase == "ALL KICKS") %>% select(-Phase, -Kick.Category),
+                             Female_P1 %>% filter(Phase == "ALL KICKS") %>% select(-Phase, -Kick.Category)) %>%
+  summarise(
+    Phase = "GRAND TOTAL",
+    Kick.Category = "All Kicks",
+    `True Positive` = sum(`True Positive`),
+    `False Negative` = sum(`False Negative`),
+    `False Positive` = max(`False Positive`),
+    `True Negative` = sum(`True Negative`),
+    Accuracy = (sum(`True Positive`) + sum(`True Negative`)) / (sum(`True Positive`) + sum(`False Negative`) + sum(`False Positive`) + sum(`True Negative`)),
+    Precision = sum(`True Positive`) / (sum(`True Positive`) + sum(`False Positive`)),
+    Sensitivity = sum(`True Positive`) / (sum(`True Positive`) + sum(`False Negative`)),
+    ErrorRate = (sum(`False Positive`) + sum(`False Negative`)) / (sum(`True Positive`) + sum(`False Negative`) + sum(`False Positive`) + sum(`True Negative`))
+  ) %>%
+  mutate_at(vars(Accuracy, Precision, Sensitivity, ErrorRate), round, 3)
+
+
+
+
+
+#---------------------------------------------------------------------
+#---------------------------------------------------------------------
+#---------------------------------------------------------------------
+
+
+#PHASE TWO / PROTOCOL PHASE:
+
+P2_Protocol_Phase <- metrics %>% filter(grepl("Phase Two", Phase))
+
+
+
+# Assuming your original dataframe is named 'metrics'
+P2_Protocol_Phase <- P2_Protocol_Phase %>%
+  mutate(PhaseGroup = case_when(
+    Phase == "Phase Two - VFL" ~ "Phase Two",
+    Phase == "Phase Two - VFLW" ~ "Phase Two",
+    TRUE ~ NA_character_))
+
+# Assuming your original dataframe is named 'metrics'
+P2_totals_df <- P2_Protocol_Phase %>%
+  group_by(PhaseGroup, Kick.Category) %>%
+  summarise(
+    Total_True_Positive = sum(`True Positive`),
+    Total_False_Negative = sum(`False Negative`),
+    Total_False_Positive = sum(`False Positive`),
+    Total_True_Negative = sum(`True Negative`),
+    Total_Accuracy = mean(Accuracy, na.rm = TRUE),
+    Total_Precision = mean(Precision, na.rm = TRUE),
+    Total_Sensitivity = mean(Sensitivity, na.rm = TRUE),
+    Total_ErrorRate = mean(ErrorRate, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+
+
+#--------------Male totals Phase One -
+Male_P2 <- P2_Protocol_Phase %>% filter(Phase == "Phase Two - VFL") %>% ungroup
+
+# Calculate the totals for TP, FN, FP, TN
+summary_row_P2 <- Male_P2 %>%
+  summarise(
+    Phase = "ALL KICKS",
+    Kick.Category = "All Kicks",
+    `True Positive` = sum(`True Positive`),
+    `False Negative` = sum(`False Negative`),
+    `False Positive` = sum(`False Positive`),
+    `True Negative` = sum(`True Negative`),
+    Accuracy = (sum(`True Positive`) + sum(`True Negative`)) / (sum(`True Positive`) + sum(`False Negative`) + sum(`False Positive`) + sum(`True Negative`)),
+    Precision = sum(`True Positive`) / (sum(`True Positive`) + sum(`False Positive`)),
+    Sensitivity = sum(`True Positive`) / (sum(`True Positive`) + sum(`False Negative`)),
+    ErrorRate = (sum(`False Positive`) + sum(`False Negative`)) / (sum(`True Positive`) + sum(`False Negative`) + sum(`False Positive`) + sum(`True Negative`))
+  ) %>%
+  mutate_at(vars(Accuracy, Precision, Sensitivity, ErrorRate), round, 3)
+
+# Append the summary row to the original dataframe
+Male_P2 <- bind_rows(Male_P2, summary_row_P2)
+
+
+#--------------Female totals Phase One -
+Female_P2 <- P2_Protocol_Phase %>% filter(Phase == "Phase Two - VFLW") %>% ungroup
+
+# Calculate the totals for TP, FN, FP, TN
+summary_row_2_P2 <- Female_P2 %>%
+  summarise(
+    Phase = "ALL KICKS",
+    Kick.Category = "All Kicks",
+    `True Positive` = sum(`True Positive`),
+    `False Negative` = sum(`False Negative`),
+    `False Positive` = first(`False Positive`),
+    `True Negative` = sum(`True Negative`),
+    Accuracy = (sum(`True Positive`) + sum(`True Negative`)) / (sum(`True Positive`) + sum(`False Negative`) + sum(`False Positive`) + sum(`True Negative`)),
+    Precision = sum(`True Positive`) / (sum(`True Positive`) + sum(`False Positive`)),
+    Sensitivity = sum(`True Positive`) / (sum(`True Positive`) + sum(`False Negative`)),
+    ErrorRate = (sum(`False Positive`) + sum(`False Negative`)) / (sum(`True Positive`) + sum(`False Negative`) + sum(`False Positive`) + sum(`True Negative`))
+  ) %>%
+  mutate_at(vars(Accuracy, Precision, Sensitivity, ErrorRate), round, 3)
+
+# Append the summary row to the original dataframe
+Female_P2 <- bind_rows(Female_P2, summary_row_2_P2)
+
+
+#------ GRaND TOTAL
+
+# Grand Total Summary Row (Male + Female combined)
+grand_total_row_P2 <- bind_rows(Male_P2 %>% filter(Phase == "ALL KICKS") %>% select(-Phase, -Kick.Category),
+                             Female_P2 %>% filter(Phase == "ALL KICKS") %>% select(-Phase, -Kick.Category)) %>%
+  summarise(
+    Phase = "GRAND TOTAL",
+    Kick.Category = "All Kicks",
+    `True Positive` = sum(`True Positive`),
+    `False Negative` = sum(`False Negative`),
+    `False Positive` = max(`False Positive`),
+    `True Negative` = sum(`True Negative`),
+    Accuracy = (sum(`True Positive`) + sum(`True Negative`)) / (sum(`True Positive`) + sum(`False Negative`) + sum(`False Positive`) + sum(`True Negative`)),
+    Precision = sum(`True Positive`) / (sum(`True Positive`) + sum(`False Positive`)),
+    Sensitivity = sum(`True Positive`) / (sum(`True Positive`) + sum(`False Negative`)),
+    ErrorRate = (sum(`False Positive`) + sum(`False Negative`)) / (sum(`True Positive`) + sum(`False Negative`) + sum(`False Positive`) + sum(`True Negative`))
+  ) %>%
+  mutate_at(vars(Accuracy, Precision, Sensitivity, ErrorRate), round, 3)
+
+
+
+#-------------------------
+#SUMMATIONS-
+phase_totals <- metrics_data %>%
+  filter(Kick.Category != "No Kick") %>%  # Remove "No Kick" rows
+  mutate(PhaseGroup = case_when(
+    grepl("Phase One", Phase, ignore.case = TRUE) ~ "Phase One",
+    grepl("Phase Two", Phase, ignore.case = TRUE) ~ "Phase Two",
+    TRUE ~ "Other"
+  )) %>%
+  group_by(PhaseGroup) %>%
+  summarise(
+    TruePositive = sum(`True Positive`, na.rm = TRUE),
+    FalseNegative = sum(`False Negative`, na.rm = TRUE),
+    FalsePositive = max(`False Positive`, na.rm = TRUE),  # Keeps unique value (e.g., 2)
+    TrueNegative = sum(`True Negative`, na.rm = TRUE),
+    Sensitivity = round(TruePositive / (TruePositive + FalseNegative), 2),
+    Specificity = TrueNegative / (TrueNegative + FalsePositive),
+    TotalSamples = TruePositive + FalseNegative + FalsePositive + TrueNegative,
+    Accuracy = round((TruePositive + TrueNegative) / TotalSamples, 2),
+    ErrorRate = round(1 - Accuracy, 2)
+  ) %>%
+  filter(PhaseGroup != "Other")
+
+
+
+
+
+
+
+```
+
+
+# COnfidence Intervals - Phase One (On Field)
+```{r, echo=FALSE,fig.height=7, out.width="80%"}
+
+
+# Assuming PHASE_ONE is the dataframe with your data
+PHASE_ONE_CI <- P1_OnField_Phase %>%
+  mutate(
+    # Calculate Standard Error for Sensitivity (SE Sensitivity)
+    SE_Sensitivity = sqrt((Sensitivity * (1 - Sensitivity)) / (`True Positive` + `False Negative`)),
+    
+    # Calculate the 95% Confidence Interval for Sensitivity
+    CI_Sensitivity_Lower = pmax(0, Sensitivity - 1.96 * SE_Sensitivity),  # Clip lower bound at 0
+    CI_Sensitivity_Upper = pmin(1, Sensitivity + 1.96 * SE_Sensitivity)   # Clip upper bound at 1
+  ) %>%
+  mutate(
+    SE_Sensitivity = round(SE_Sensitivity, 2),
+    CI_Sensitivity_Lower = round(CI_Sensitivity_Lower, 2),
+    CI_Sensitivity_Upper = round(CI_Sensitivity_Upper, 2))
+
+
+# Repeat for Phase One Totals - Kicks
+PHASE_ONE_TOTALS_CI <- P1_totals_df %>%
+  mutate(
+    # Calculate Standard Error for Sensitivity (SE Sensitivity)
+    SE_Sensitivity = sqrt((Total_Sensitivity * (1 - Total_Sensitivity)) / (`Total_True_Positive` + `Total_False_Negative`)),
+    
+    # Calculate the 95% Confidence Interval for Sensitivity
+    CI_Sensitivity_Lower = pmax(0, Total_Sensitivity - 1.96 * SE_Sensitivity),  # Clip lower bound at 0
+    CI_Sensitivity_Upper = pmin(1, Total_Sensitivity + 1.96 * SE_Sensitivity)   # Clip upper bound at 1
+  ) %>%
+  mutate(
+    SE_Sensitivity = round(SE_Sensitivity, 2),
+    CI_Sensitivity_Lower = round(CI_Sensitivity_Lower, 2),
+    CI_Sensitivity_Upper = round(CI_Sensitivity_Upper, 2))
+
+
+# Repeat for Phase One Totals - ALL KICKS calculation
+Male_PHASE_ONE_CI <- Male_P1 %>%
+  mutate(
+    # Calculate Standard Error for Sensitivity (SE Sensitivity)
+    SE_Sensitivity = sqrt((Sensitivity * (1 - Sensitivity)) / (`True Positive` + `False Negative`)),
+    
+    # Calculate the 95% Confidence Interval for Sensitivity
+    CI_Sensitivity_Lower = pmax(0, Sensitivity - 1.96 * SE_Sensitivity),  # Clip lower bound at 0
+    CI_Sensitivity_Upper = pmin(1, Sensitivity + 1.96 * SE_Sensitivity)   # Clip upper bound at 1
+  ) %>%
+  mutate(
+    SE_Sensitivity = round(SE_Sensitivity, 2),
+    CI_Sensitivity_Lower = round(CI_Sensitivity_Lower, 2),
+    CI_Sensitivity_Upper = round(CI_Sensitivity_Upper, 2))
+
+#FEMALE
+Female_PHASE_ONE_CI <- Female_P1 %>%
+  mutate(
+    # Calculate Standard Error for Sensitivity (SE Sensitivity)
+    SE_Sensitivity = sqrt((Sensitivity * (1 - Sensitivity)) / (`True Positive` + `False Negative`)),
+    
+    # Calculate the 95% Confidence Interval for Sensitivity
+    CI_Sensitivity_Lower = pmax(0, Sensitivity - 1.96 * SE_Sensitivity),  # Clip lower bound at 0
+    CI_Sensitivity_Upper = pmin(1, Sensitivity + 1.96 * SE_Sensitivity)   # Clip upper bound at 1
+  ) %>%
+  mutate(
+    SE_Sensitivity = round(SE_Sensitivity, 2),
+    CI_Sensitivity_Lower = round(CI_Sensitivity_Lower, 2),
+    CI_Sensitivity_Upper = round(CI_Sensitivity_Upper, 2))
+
+# GRAND TOTAL ROW
+ALL_KICKCS_PHASE_ONE_CI <- grand_total_row %>%
+  mutate(
+    # Calculate Standard Error for Sensitivity (SE Sensitivity)
+    SE_Sensitivity = sqrt((Sensitivity * (1 - Sensitivity)) / (`True Positive` + `False Negative`)),
+    
+    # Calculate the 95% Confidence Interval for Sensitivity
+    CI_Sensitivity_Lower = pmax(0, Sensitivity - 1.96 * SE_Sensitivity),  # Clip lower bound at 0
+    CI_Sensitivity_Upper = pmin(1, Sensitivity + 1.96 * SE_Sensitivity)   # Clip upper bound at 1
+  ) %>%
+  mutate(
+    SE_Sensitivity = round(SE_Sensitivity, 2),
+    CI_Sensitivity_Lower = round(CI_Sensitivity_Lower, 2),
+    CI_Sensitivity_Upper = round(CI_Sensitivity_Upper, 2))
+
+
+#----------
+
+PHASE_TOTALS_CI <- phase_totals %>%
+  mutate(
+    # Calculate Standard Error for Sensitivity (SE Sensitivity)
+    SE_Sensitivity = sqrt((Sensitivity * (1 - Sensitivity)) / (`TruePositive` + `FalseNegative`)),
+    
+    # Calculate the 95% Confidence Interval for Sensitivity
+    CI_Sensitivity_Lower = pmax(0, Sensitivity - 1.96 * SE_Sensitivity),  # Clip lower bound at 0
+    CI_Sensitivity_Upper = pmin(1, Sensitivity + 1.96 * SE_Sensitivity)   # Clip upper bound at 1
+  ) %>%
+  mutate(
+    SE_Sensitivity = round(SE_Sensitivity, 2),
+    CI_Sensitivity_Lower = round(CI_Sensitivity_Lower, 2),
+    CI_Sensitivity_Upper = round(CI_Sensitivity_Upper, 2))
+
+
+
+```
+
+
+
+
+# COnfidence Intervals - Phase Two (Proctocol)
+```{r, echo=FALSE,fig.height=7, out.width="80%"}
+
+
+# PHASE_TWO is the dataframe with data
+PHASE_TWO_CI <- P2_Protocol_Phase %>%
+  mutate(
+    # Calculate Standard Error for Sensitivity (SE Sensitivity)
+    SE_Sensitivity = sqrt((Sensitivity * (1 - Sensitivity)) / (`True Positive` + `False Negative`)),
+    
+    # Calculate the 95% Confidence Interval for Sensitivity
+    CI_Sensitivity_Lower = pmax(0, Sensitivity - 1.96 * SE_Sensitivity),  # Clip lower bound at 0
+    CI_Sensitivity_Upper = pmin(1, Sensitivity + 1.96 * SE_Sensitivity)   # Clip upper bound at 1
+  ) %>%
+  mutate(
+    SE_Sensitivity = round(SE_Sensitivity, 2),
+    CI_Sensitivity_Lower = round(CI_Sensitivity_Lower, 2),
+    CI_Sensitivity_Upper = round(CI_Sensitivity_Upper, 2))
+
+
+# Repeat for Phase One Totals - Kicks
+PHASE_TWO_TOTALS_CI <- P2_totals_df %>%
+  mutate(
+    # Calculate Standard Error for Sensitivity (SE Sensitivity)
+    SE_Sensitivity = sqrt((Total_Sensitivity * (1 - Total_Sensitivity)) / (`Total_True_Positive` + `Total_False_Negative`)),
+    
+    # Calculate the 95% Confidence Interval for Sensitivity
+    CI_Sensitivity_Lower = pmax(0, Total_Sensitivity - 1.96 * SE_Sensitivity),  # Clip lower bound at 0
+    CI_Sensitivity_Upper = pmin(1, Total_Sensitivity + 1.96 * SE_Sensitivity)   # Clip upper bound at 1
+  ) %>%
+  mutate(
+    SE_Sensitivity = round(SE_Sensitivity, 2),
+    CI_Sensitivity_Lower = round(CI_Sensitivity_Lower, 2),
+    CI_Sensitivity_Upper = round(CI_Sensitivity_Upper, 2))
+
+
+# Repeat for Phase One Totals - ALL KICKS calculation
+Male_PHASE_TWO_CI <- Male_P2 %>%
+  mutate(
+    # Calculate Standard Error for Sensitivity (SE Sensitivity)
+    SE_Sensitivity = sqrt((Sensitivity * (1 - Sensitivity)) / (`True Positive` + `False Negative`)),
+    
+    # Calculate the 95% Confidence Interval for Sensitivity
+    CI_Sensitivity_Lower = pmax(0, Sensitivity - 1.96 * SE_Sensitivity),  # Clip lower bound at 0
+    CI_Sensitivity_Upper = pmin(1, Sensitivity + 1.96 * SE_Sensitivity)   # Clip upper bound at 1
+  ) %>%
+  mutate(
+    SE_Sensitivity = round(SE_Sensitivity, 2),
+    CI_Sensitivity_Lower = round(CI_Sensitivity_Lower, 2),
+    CI_Sensitivity_Upper = round(CI_Sensitivity_Upper, 2))
+
+#FEMALE
+Female_PHASE_TWO_CI <- Female_P2 %>%
+  mutate(
+    # Calculate Standard Error for Sensitivity (SE Sensitivity)
+    SE_Sensitivity = sqrt((Sensitivity * (1 - Sensitivity)) / (`True Positive` + `False Negative`)),
+    
+    # Calculate the 95% Confidence Interval for Sensitivity
+    CI_Sensitivity_Lower = pmax(0, Sensitivity - 1.96 * SE_Sensitivity),  # Clip lower bound at 0
+    CI_Sensitivity_Upper = pmin(1, Sensitivity + 1.96 * SE_Sensitivity)   # Clip upper bound at 1
+  ) %>%
+  mutate(
+    SE_Sensitivity = round(SE_Sensitivity, 2),
+    CI_Sensitivity_Lower = round(CI_Sensitivity_Lower, 2),
+    CI_Sensitivity_Upper = round(CI_Sensitivity_Upper, 2))
+
+# GRAND TOTAL ROW
+ALL_KICKCS_PHASE_TWO_CI <- grand_total_row_P2 %>%
+  mutate(
+    # Calculate Standard Error for Sensitivity (SE Sensitivity)
+    SE_Sensitivity = sqrt((Sensitivity * (1 - Sensitivity)) / (`True Positive` + `False Negative`)),
+    
+    # Calculate the 95% Confidence Interval for Sensitivity
+    CI_Sensitivity_Lower = pmax(0, Sensitivity - 1.96 * SE_Sensitivity),  # Clip lower bound at 0
+    CI_Sensitivity_Upper = pmin(1, Sensitivity + 1.96 * SE_Sensitivity)   # Clip upper bound at 1
+  ) %>%
+  mutate(
+    SE_Sensitivity = round(SE_Sensitivity, 2),
+    CI_Sensitivity_Lower = round(CI_Sensitivity_Lower, 2),
+    CI_Sensitivity_Upper = round(CI_Sensitivity_Upper, 2))
+
+
+#----------
+
+
+
+```
+
+
+
+### Repeated Measures (re stat advisor) - Individual Participant Analysis & Modelling (GLMM)?
+
+```{r, echo=FALSE,fig.height=7, out.width="80%", eval=FALSE}
+
+#write.csv(ALL_DATA_CLASSES, "ALL_DATA_CLASSES.csv", row.names = FALSE)
+
+#Identified_Data <- read.csv("Study 2 - DATABASE/Study 2 Kick Database.csv", header = TRUE)
+
+# Create unique player codes
+#Identified_Data <- Identified_Data %>%
+#  mutate(Participant_ID = paste0("P", as.integer(factor(Row))))
+
+# Create reference table mapping original names to assigned codes
+#Participant_Reference <- ALL_DATA_CLASSES %>%
+#  select(Participant_ID) %>%
+#  distinct() %>%
+#  arrange(Participant_ID)  # Ensures codes are listed in order
+
+#write.csv(Identified_Data, "Identified_Data.csv", row.names = FALSE)
+
+
+```
+
+
+
+
+```{r, echo=FALSE,fig.height=8, out.width="100%", fig.width=12,}
+
+#----------
+# Step 1. - Create visual plot to demonstrate to the reviewers that kick detection/sensitivity does not vary outside of current reports (and accounts for repeated measures)
+#----------
+
+
+#  calculate sensitivity per player / participant:
+P1_individual_player_summary <- ALL_DATA_CLASSES %>%
+  group_by(Phase,Participant_ID) %>%
+  summarise(
+    Kicks_Observed = n(),
+    True_Positives = sum(Class == "True Positive", na.rm = TRUE),
+    False_Negatives = sum(Class == "False Negative", na.rm = TRUE),
+    Sensitivity = True_Positives / (True_Positives + False_Negatives))
+
+
+
+# First: Set Phase as an ordered factor
+P1_individual_player_summary$Phase <- factor(
+  P1_individual_player_summary$Phase,
+  levels = c(
+    "Phase One - AFL",
+    "Phase One - AFLW",
+    "Phase Two - VFL",
+    "Phase Two - VFLW"
+  )
+)
+
+# Then: Reorder Participant_ID within Phase
+P1_individual_player_summary <- P1_individual_player_summary %>%
+  arrange(Phase, Participant_ID) %>%
+  mutate(Participant_ID = factor(Participant_ID, levels = unique(Participant_ID)))
+
+
+
+
+#PLOT - > 
+ggplot(P1_individual_player_summary, aes(x = Participant_ID, y = Sensitivity, fill = Phase)) +
+  geom_col() +
+  geom_text(aes(label = Kicks_Observed), vjust = -0.5, size = 3.5) +  # Adds text labels above bars
+  labs(x = "Participant ID", y = "Sensitivity", title = "Sensitivity per Participant", fill = "Phase") +
+  scale_fill_discrete(labels = c(
+    "Phase One - AFL" = "On-Field Phase - Male (AFL)",
+    "Phase One - AFLW" = "On-Field Phase - Female (AFLW)",
+    "Phase Two - VFL" = "Protocol Phase - Male (VFL)",
+    "Phase Two - VFLW" = "Protocol Phase - Female (VFL)")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+#------------ # ----------- # ------------ # ----------
+#------------ # ----------- # ------------ # ----------
+
+```
+
+
+
+```{r, echo=FALSE,fig.height=8, out.width="100%", fig.width=12,}
+
+#----------
+# Step 2. - Create a summary table which averages individual player-by-player sensitivty to address the repeated measures issue: (this will likely insert into the manuscript, or comments)
+#----------
+
+data <- ALL_DATA_CLASSES
+
+# Filter to observed kicks only
+#observed <- data %>%
+ # filter(`Observed.Not.Observed` == "Observed")
+
+# Assign Phase and Gender using Phase field
+#observed <- observed %>%
+#  mutate(
+#    Phase_Group = case_when(
+#      grepl("One", Phase) ~ "On-Field",
+#      grepl("Two", Phase) ~ "Protocol",
+#      TRUE ~ "Unknown"),
+#    Gender_Group = case_when(
+#      grepl("AFLW|VFLW", Phase) ~ "Female",
+#      grepl("AFL|VFL", Phase) ~ "Male",
+#      TRUE ~ "Unknown"),
+#    true_positive = Class == "True Positive",
+#    false_negative = Class == "False Negative")
+
+# Participant-level sensitivity
+#participant_summary <- observed %>%
+#  group_by(Phase_Group, Gender_Group, Participant_ID) %>%
+#  summarise(
+#    TP = sum(true_positive, na.rm = TRUE),
+#    FN = sum(false_negative, na.rm = TRUE),
+#    Sensitivity = TP / (TP + FN)) %>%
+#  ungroup()
+
+# Group summary
+#group_summary <- participant_summary %>%
+#  group_by(Phase_Group, Gender_Group) %>%
+#  summarise(
+#    mean_sensitivity = mean(Sensitivity, na.rm = TRUE),
+#    sd_sensitivity = sd(Sensitivity, na.rm = TRUE),
+#    min_sensitivity = min(Sensitivity, na.rm = TRUE),
+#    max_sensitivity = max(Sensitivity, na.rm = TRUE),
+#    n_participants = n())
+
+
+#--------------------- # ------------------------- # -----------------------------
+#--------------------- # ------------------------- # -----------------------------
+
+#----------
+# Step 2. - Create a summary table which averages individual player-by-player sensitivty to address the repeated measures issue: (this will likely insert into the manuscript, or comments)
+#----------
+
+
+# Filter to observed kicks and classify
+observed <- data %>%
+  filter(`Observed.Not.Observed` == "Observed") %>%
+  mutate(
+    Phase_Group = case_when(
+      grepl("One", Phase) ~ "On-Field",
+      grepl("Two", Phase) ~ "Protocol",
+      TRUE ~ "Unknown"),
+    Gender_Group = case_when(
+      grepl("AFLW|VFLW", Phase) ~ "Female",
+      grepl("AFL|VFL", Phase) ~ "Male",
+      TRUE ~ "Unknown"),
+    true_positive = Class == "True Positive",
+    false_negative = Class == "False Negative")
+
+# Calculate per-participant sensitivity and 95% CI (same formula as referenced)
+participant_summary <- observed %>%
+  group_by(Phase_Group, Gender_Group, Participant_ID) %>%
+  summarise(
+    TP = sum(true_positive, na.rm = TRUE),
+    FN = sum(false_negative, na.rm = TRUE),
+    Sensitivity = TP / (TP + FN),
+    Total = TP + FN) %>%
+  mutate(
+    SE = sqrt((Sensitivity * (1 - Sensitivity)) / Total),
+    CI_Lower = pmax(0, Sensitivity - 1.96 * SE),
+    CI_Upper = pmin(1, Sensitivity + 1.96 * SE)) %>%
+  filter(!is.na(Sensitivity), Total > 0) %>%
+  ungroup()
+
+# Summarise by Phase and Gender group
+group_summary <- participant_summary %>%
+  group_by(Phase_Group, Gender_Group) %>%
+  summarise(
+    n_participants = n(),
+    mean_sensitivity = mean(Sensitivity, na.rm = TRUE),
+    sd_sensitivity = sd(Sensitivity, na.rm = TRUE),
+    min_sensitivity = min(Sensitivity, na.rm = TRUE),
+    max_sensitivity = max(Sensitivity, na.rm = TRUE),
+    ci_lower_range = min(CI_Lower, na.rm = TRUE),
+    ci_upper_range = max(CI_Upper, na.rm = TRUE)) %>%
+  mutate(across(where(is.numeric), ~round(.x, 2)))
+
+# Table results (may use...)
+group_summary %>%
+  select(
+    Phase = Phase_Group,
+    Gender = Gender_Group,
+    `n =` = n_participants,
+    `Mean Sensitivity` = mean_sensitivity,
+    `SD` = sd_sensitivity,
+    `Min` = min_sensitivity,
+    `Max` = max_sensitivity,
+    `CI Range (Lower)` = ci_lower_range,
+    `CI Range (Upper)` = ci_upper_range) %>%
+  kable(format = "html", caption = "Individual Participant-Level Sensitivity Summary (with Individual 95% CI Ranges)") %>%
+  kable_styling(full_width = FALSE, position = "center")
+
+
+
+
+
+
+```
+
+
+
+
+
+```{r, echo=FALSE}
+
+
+#----------
+# Step 3. - Explore using a GLMM to address comment and justify current pooled data appraoch 
+#----------
+
+data <- ALL_DATA_CLASSES
+
+
+# Prepare and filter for observed kicks only
+observed <- data %>%
+  filter(`Observed.Not.Observed` == "Observed") %>%
+  mutate(
+    Detected_Binary = ifelse(`Detected.Not.Detected` == "Detected", 1, 0),
+    Phase_Group = case_when(
+      grepl("One", Phase) ~ "Phase One",
+      grepl("Two", Phase) ~ "Phase Two",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(Detected_Binary), !is.na(Participant_ID), !is.na(Phase_Group))
+
+# --- PHASE ONE: On-Field ---
+phase_one <- observed %>% filter(Phase_Group == "Phase One")
+
+glmm_phase_one <- glmer(
+  Detected_Binary ~ 1 + (1 | Participant_ID),
+  data = phase_one,
+  family = binomial(link = "logit")
+)
+
+log_odds_phase_one <- fixef(glmm_phase_one)[1]
+prob_phase_one <- plogis(log_odds_phase_one)
+
+# --- PHASE TWO: Protocol ---
+phase_two <- observed %>% filter(Phase_Group == "Phase Two")
+
+glmm_phase_two <- glmer(
+  Detected_Binary ~ 1 + (1 | Participant_ID),
+  data = phase_two,
+  family = binomial(link = "logit")
+)
+
+log_odds_phase_two <- fixef(glmm_phase_two)[1]
+prob_phase_two <- plogis(log_odds_phase_two)
+
+# --- Print results ---
+cat("GLMM Detection Probability (Model-Based):\n")
+cat("Phase One (On-Field):", round(prob_phase_one, 3), "\n")
+cat("Phase Two (Protocol):", round(prob_phase_two, 3), "\n")
+
+#---------
+
+
+
+
+
+
+```
+
+
+
+
+
+
+
+
